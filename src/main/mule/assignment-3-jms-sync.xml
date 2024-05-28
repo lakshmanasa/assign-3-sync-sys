@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:jms="http://www.mulesoft.org/schema/mule/jms" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+	<jms:config name="JMS_Config" doc:name="JMS Config" doc:id="18977b73-0baf-42a1-a06b-ac70c8d43a7c" >
+		<jms:active-mq-connection username="admin" password="admin" >
+			<jms:factory-configuration brokerUrl="tcp://localhost:61616" />
+		</jms:active-mq-connection>
+	</jms:config>
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="7d1ba6f9-bb3a-403b-bea6-cf8665481d89" >
+		<db:my-sql-connection host="localhost" port="3306" user="root" password="123456" database="studentdetails" />
+	</db:config>
+	<db:config name="Database_Config1" doc:name="Database Config" doc:id="64076d65-e2e3-422e-adee-17ef4ea5d1dc" >
+		<db:my-sql-connection host="localhost" port="3306" user="root" password="123456" database="assignment2" />
+	</db:config>
+	<flow name="assignment-3-jms-syncFlow" doc:id="4c58c36f-ed10-488c-9ee7-d27ec67e8678" >
+		<jms:listener doc:name="On New Message" doc:id="d7cb413f-001d-40e3-b250-2302e07c092f" config-ref="JMS_Config" destination="assign1" inboundContentType="application/json"/>
+		<ee:transform doc:name="Transform Message" doc:id="ddc8f1e4-1bfd-480e-a4d3-5d5eca35b40b" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="Transform Message" doc:id="bf8d0ff1-04ac-4414-89d6-49920b2fd1aa" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload pluck($)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="51d0dad3-643a-4708-8607-fc372e5a40b9" >
+			<try doc:name="Try" doc:id="fc110a56-d684-462d-9aa6-38bc191fd0a0" >
+				<set-variable value="#[payload]" doc:name="Set Variable" doc:id="8dc7b553-0670-4060-83c0-dcade1b4f1c2" variableName="a" />
+				<db:select doc:name="Select" doc:id="009861df-634f-441b-8838-20b1eac20261" config-ref="Database_Config">
+				<db:sql><![CDATA[select * from details where userid =:uid]]></db:sql>
+				<db:input-parameters><![CDATA[#[{
+	uid: payload
+}]]]></db:input-parameters>
+			</db:select>
+				<ee:transform doc:name="Transform Message" doc:id="c2c03774-63c9-4976-bb8e-08913fc8a7dd">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+				<validation:is-not-empty-collection doc:name="Is not empty collection" doc:id="a8dd5808-0897-4172-873c-79ccd465a90f" message='#["no record found " ++ vars.a]'/>
+				<ee:transform doc:name="Transform Message" doc:id="24512d02-cf80-43e9-98cf-ded79b5dbe56">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+payload map{
+	"query": "SELECT USERID," ++ $.COLUMNNAMES ++ " FROM " ++ $.TABLENAMES ++ " WHERE USERID = '" ++ $.USERID ++ "'"
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+				<foreach doc:name="For Each" doc:id="ab4aa732-699c-46c3-b688-13fb411c97a5">
+				<db:select doc:name="Select" doc:id="ff740bbf-3786-4dc7-93d4-bf9885fb6983" config-ref="Database_Config1">
+					<db:sql><![CDATA[#[payload.query]]]></db:sql>
+				</db:select>
+				<set-variable value="#[(vars.b default []) + payload]" doc:name="Set Variable" doc:id="c6a4c67c-0636-4b99-99e9-1d6a83b638d3" variableName="b" />
+			</foreach>
+				<set-variable value="#[vars.b]" doc:name="Set Variable" doc:id="5754cc43-60a0-434b-96f9-09638db00eb7" variableName="c" />
+				<error-handler >
+					<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="3676730c-8249-4700-a87b-7faee495c9cb" >
+						<set-payload value="#[error.description]" doc:name="Set Payload" doc:id="26238694-3314-4366-a91e-25bba994428b" />
+						<set-variable value="#[(vars.fail default []) + payload]" doc:name="Set Variable" doc:id="f424a5a7-fd74-403a-b706-46f3802a49c4" variableName="fail"/>
+					</on-error-continue>
+				</error-handler>
+			</try>
+		</foreach>
+		<ee:transform doc:name="Transform Message" doc:id="2e535332-08c6-462a-96b8-5c5a53c1de41">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{"success":
+((((flatten(vars.b)groupBy($.USERID)) mapObject(v,k,i) -> {
+    (k): v reduce($$ ++ $)
+})orderBy($.DEPTID))groupBy($.DEPTID)),
+"fail": vars.fail}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+	</flow>
+</mule>
